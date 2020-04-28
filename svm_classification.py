@@ -5,6 +5,8 @@ from sklearn.decomposition import PCA
 import tensorflow as tf
 from tensorflow.keras import layers,models
 import numpy as np
+import xgboost as xgb
+from xgboost import XGBClassifier, XGBRFClassifier
 
 
 
@@ -30,6 +32,8 @@ def classification(classifier,train,train_labels,test,test_labels,dataset):
 		svm_classify(train,train_labels,test,test_labels)
 	elif(classifier == 'dnn'):
 		dnn_classify(train,train_labels,test,test_labels,dataset)
+	elif(classifier == 'xgboost'):
+		xgboost_classify(train,train_labels,test,test_labels)
 
 
 
@@ -57,74 +61,112 @@ def svm_classify(X,Xlabels,Y,Ylabels):
 
 
 def dnn_classify(X,Xlabels,Y,Ylabels,dataset):
+	(X,Xlabels),(Y,Ylabels) = tf.keras.datasets.mnist.load_data()
 	#reshape the data
 	if(dataset == 'mnist'):
-		lr = np.arange(10)
+		# lr = np.arange(10)
 
-		Xt = np.asfarray(np.zeros((len(X),28,28)))
-		Xl = np.asfarray(np.zeros((len(X),10)))
-		Yt = np.asfarray(np.zeros((len(Y),28,28)))
-		Yl = np.asfarray(np.zeros((len(Y),10)))
-		for i in range(0,len(X)):
-			Xt[i,:,:] = np.asfarray(X[i]).reshape(28,28)
-			Xl[i] = (lr==Xlabels[i]).astype(np.float)
+		# Xt = np.asfarray(np.zeros((len(X),28,28)))
+		# Xl = np.asfarray(np.zeros((len(X),10)))
+		# Yt = np.asfarray(np.zeros((len(Y),28,28)))
+		# Yl = np.asfarray(np.zeros((len(Y),10)))
+		# for i in range(0,len(X)):
+		# 	Xt[i,:,:] = np.asfarray(X[i]).reshape(28,28)
+		# 	Xl[i] = (lr==Xlabels[i]).astype(np.float)
 
-		for i in range(0,len(Y)):
-			Yt[i,:,:] = np.asfarray(Y[i]).reshape(28,28)
-			Yl[i] = (lr==Ylabels[i]).astype(np.float)
+		# for i in range(0,len(Y)):
+		# 	Yt[i,:,:] = np.asfarray(Y[i]).reshape(28,28)
+		# 	Yl[i] = (lr==Ylabels[i]).astype(np.float)
 		
-		Xt = np.asfarray(X).reshape(len(X),28,28)
-		Yt = np.asfarray(Y).reshape(len(Y),28,28)
+		# Xt = np.asfarray(X).reshape(len(X),28,28)
+		# Yt = np.asfarray(Y).reshape(len(Y),28,28)
 
 
-		#X = Xt/255
-		X = np.asfarray(X)/255
-		Xlabels = Xl
-		#Y = Yt/255
-		Y = np.asfarray(Y)/255
-		Ylabels = Yl
+		#X = np.asfarray(X)/255
+		X = X.reshape(X.shape[0],28,28,1)
+		X = X.astype('float32')
+		X = X / 255
+		Xlabels = np.asfarray(Xlabels)
+		#Y = np.asfarray(Y)/255
+		Y = Y.reshape(Y.shape[0],28,28,1)
+		Y = Y.astype('float32')
+		Y = Y / 255
+		Ylabels = np.asfarray(Ylabels)
 
 	#print(X[0]); exit()
-
 	model = models.Sequential()
 
 
-	# model.add(layers.Conv2D(28,(3,3), activation='relu', input_shape=(28,28,1) ))
-	# model.add(layers.MaxPooling2D(2,2))
-	# model.add(layers.Conv2D(64,(3,3), activation='relu'))
-	# model.add(layers.MaxPooling2D(2,2))
+	model.add(layers.Conv2D(28,(3,3), activation='relu', input_shape=(28,28,1) ))
+	model.add(layers.MaxPooling2D(2,2))
+	model.add(layers.Conv2D(64,(3,3), activation='relu'))
+	model.add(layers.MaxPooling2D(2,2))
 	# model.add(layers.Conv2D(64,(3,3),activation='relu'))
-	# model.add(layers.Flatten())
-	# model.add(layers.Dense(64,activation='relu'))
-	# model.add(layers.Dense(10))
-
-	model.add(layers.Dense(20,input_dim=784,activation='relu'))
-	print(model.output_shape)
-	model.add(layers.Dense(40,activation='relu'))
-	print(model.output_shape)
-	model.add(layers.Dense(60,activation='relu'))
-	print(model.output_shape)
-	model.add(layers.Dense(80,activation='relu'))
-	model.add(layers.Dense(100,activation='relu'))
-	model.add(layers.Dense(120,activation='relu'))
-	model.add(layers.Dense(120,activation='relu'))
-	model.add(layers.Dense(240,activation='relu'))
+	model.add(layers.Flatten())
+	model.add(layers.Dense(128,activation='relu'))
+	model.add(layers.Dropout(0.2))
 	model.add(layers.Dense(10,activation='softmax'))
+
+	# model.add(layers.Dense(20,input_dim=784,activation='relu'))
+	# print(model.output_shape)
+	# model.add(layers.Dense(40,activation='relu'))
+	# print(model.output_shape)
+	# model.add(layers.Dense(60,activation='relu'))
+	# print(model.output_shape)
+	# model.add(layers.Dense(80,activation='relu'))
+	# model.add(layers.Dense(100,activation='relu'))
+	# model.add(layers.Dense(120,activation='relu'))
+	# model.add(layers.Dense(120,activation='relu'))
+	# model.add(layers.Dense(240,activation='relu'))
+	# model.add(layers.Dense(10,activation='softmax'))
 	print(model.output_shape)
 
 
 	model.compile(optimizer='adam',loss = 'categorical_crossentropy',
 		metrics=['accuracy'])
-	history = model.fit(X,Xlabels,epochs=20,validation_data=(Y,Ylabels),batch_size=200)
+	model.compile(optimizer='adam',loss = 'sparse_categorical_crossentropy',
+		metrics=['accuracy'])
+	history = model.fit(X,Xlabels,epochs=20,validation_data=(Y,Ylabels))
 
 	test_loss,test_acc = model.evaluate(Y,Ylabels,verbose=2)
 
 
+def xgboost_classify(X,Xlabels,Y,Ylabels):
+	########## Applying PCA (Optional)
+	pca = PCA(n_components = 10)
+	pca.fit(X) 
+	X = pca.transform(X)
+	Y = pca.transform(Y)
+	########## Applying PCA (Optional)
+
+	#gbtree, gblinear, dart 0.978
+	#model = XGBClassifier()
+	#acc 0.9572
+	model = XGBRFClassifier(n_estimators=50,max_depth=50)
+	model.fit(np.asfarray(X),np.asfarray(Xlabels))
+
+	output = model.predict(np.asfarray(Y))
+	#acc = len(output==Ylabels)/len(Ylabels)
+	acc = 0
+	for i,j in zip(output,Ylabels):
+		if(i==j):
+			acc += 1
+
+	print(acc/len(Ylabels))
+
+
+
+
 #main part of the program
+if len(sys.argv)==1:
+	print('run the program similar to what shown below')
+	print('python classification.py classifier-name dataset-name')
+	exit()
+
 data_path = sys.argv[2]
 classifier = sys.argv[1]
 
 #get data from data path
 train, train_labels, test,test_labels = extract_data(data_path)
-
+#call classifiers' function
 classification(classifier,train,train_labels,test,test_labels,data_path)
