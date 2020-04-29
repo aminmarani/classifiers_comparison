@@ -7,6 +7,8 @@ from tensorflow.keras import layers,models
 import numpy as np
 import xgboost as xgb
 from xgboost import XGBClassifier, XGBRFClassifier
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
 
@@ -14,39 +16,52 @@ def extract_data(data_path):
 	#please define the way to read your very own dataset, this function only read Mnist and Iyre
 	train = []; test=[]; train_labels = []; test_labels = []
 	if(data_path == 'mnist'):
-		source = MNIST('./mnist')
-		train,train_labels = source.load_training()
-		test,test_labels = source.load_testing()
+		# source = MNIST('./mnist')
+		# train,train_labels = source.load_training()
+		# test,test_labels = source.load_testing()
+		(train,train_labels),(test,test_labels) = tf.keras.datasets.mnist.load_data()
 		#print(source.display(train[0]))
-
-
+	elif(data_path == 'iyer'):
+		data = pd.read_csv('./iyer.txt',sep='\t',header=None).values
+		y = data[:,1]
+		y[y==-1] = 0 #re-assign noise to class 0 to have 0-10 classes
+		x = np.delete(data,1,1)
+		train,test,train_labels,test_labels = train_test_split(x,y,test_size = 0.3, random_state = 12345)
+	else:
+		print('please correct your data-set name and re-run the program')
+		exit()
 
 	return(train,train_labels,test,test_labels)
 
 
 
-
-
-def classification(classifier,train,train_labels,test,test_labels,dataset):
+def classification(classifier,train,train_labels,test,test_labels,dataset,pca_flag):
 	if(classifier == 'svm'):
-		svm_classify(train,train_labels,test,test_labels)
+		svm_classify(train,train_labels,test,test_labels,pca_flag)
 	elif(classifier == 'dnn'):
-		dnn_classify(train,train_labels,test,test_labels,dataset)
+		dnn_classify(train,train_labels,test,test_labels,dataset,pca_flag)
 	elif(classifier == 'xgboost'):
-		xgboost_classify(train,train_labels,test,test_labels)
+		xgboost_classify(train,train_labels,test,test_labels,pca_flag)
 
 
 
-def svm_classify(X,Xlabels,Y,Ylabels):
+def svm_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	#you can also use decision_function_shape='ovo' for one vs one, but the result won't change
 	#I used different kernels (poly with deg 9 0.8581, 4degree 0.9698, rbf = 0.9792, rbf with pca_70 is 0.9846, sigmoid with 0.7759 acc)
 	model = svm.SVC(decision_function_shape='ovr',kernel='rbf') #define a support vector classifier
 	
 	########## Applying PCA (Optional)
-	pca = PCA(n_components = 70)
-	pca.fit(X) 
-	X = pca.transform(X)
-	Y = pca.transform(Y)
+	if(pca_flag and len(X[0])>13):
+		pca = PCA(n_components = 70)
+		pca.fit(X) 
+		X = pca.transform(X)
+		Y = pca.transform(Y)
+	if(pca_flag and len(X[0])==13):
+		#with PCA 0.78, without 0.76
+		pca = PCA(n_components = 2)
+		pca.fit(X) 
+		X = pca.transform(X)
+		Y = pca.transform(Y)
 	########## Applying PCA (Optional)
 	
 	model.fit(X,Xlabels)
@@ -60,28 +75,11 @@ def svm_classify(X,Xlabels,Y,Ylabels):
 	print(acc/len(Ylabels))
 
 
-def dnn_classify(X,Xlabels,Y,Ylabels,dataset):
-	(X,Xlabels),(Y,Ylabels) = tf.keras.datasets.mnist.load_data()
+def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
+	model = models.Sequential()
+	#(X,Xlabels),(Y,Ylabels) = tf.keras.datasets.mnist.load_data()
 	#reshape the data
 	if(dataset == 'mnist'):
-		# lr = np.arange(10)
-
-		# Xt = np.asfarray(np.zeros((len(X),28,28)))
-		# Xl = np.asfarray(np.zeros((len(X),10)))
-		# Yt = np.asfarray(np.zeros((len(Y),28,28)))
-		# Yl = np.asfarray(np.zeros((len(Y),10)))
-		# for i in range(0,len(X)):
-		# 	Xt[i,:,:] = np.asfarray(X[i]).reshape(28,28)
-		# 	Xl[i] = (lr==Xlabels[i]).astype(np.float)
-
-		# for i in range(0,len(Y)):
-		# 	Yt[i,:,:] = np.asfarray(Y[i]).reshape(28,28)
-		# 	Yl[i] = (lr==Ylabels[i]).astype(np.float)
-		
-		# Xt = np.asfarray(X).reshape(len(X),28,28)
-		# Yt = np.asfarray(Y).reshape(len(Y),28,28)
-
-
 		#X = np.asfarray(X)/255
 		X = X.reshape(X.shape[0],28,28,1)
 		X = X.astype('float32')
@@ -92,57 +90,79 @@ def dnn_classify(X,Xlabels,Y,Ylabels,dataset):
 		Y = Y.astype('float32')
 		Y = Y / 255
 		Ylabels = np.asfarray(Ylabels)
+		input_shape = (28,28,1)
+		class_num = 10
+		epochs = 20
+		#building the model
+		#drop out 0.2 0.9920
+		model.add(layers.Conv2D(28,(3,3), activation='relu', input_shape=input_shape ))
+		model.add(layers.MaxPooling2D(2,2))
+		model.add(layers.Conv2D(64,(3,3), activation='relu'))
+		model.add(layers.MaxPooling2D(2,2))
+		# model.add(layers.Conv2D(64,(3,3),activation='relu'))
+		model.add(layers.Flatten())
+		model.add(layers.Dense(128,activation='relu'))
+		model.add(layers.Dropout(0.2))
+		model.add(layers.Dense(class_num,activation='softmax'))
 
-	#print(X[0]); exit()
-	model = models.Sequential()
+	elif(dataset == 'iyer'):
+		#0.88, 0.93 with PCA
+		######### Applying PCA (Optional)
+		features = 13
+		if(pca_flag):
+			features = 6
+			pca = PCA(n_components = features)
+			pca.fit(X) 
+			X = pca.transform(X)
+			Y = pca.transform(Y)
+		########## Applying PCA (Optional)
+		X = X.reshape(X.shape[0],features,1)
+		Y = Y.reshape(Y.shape[0],features,1)
+		input_shape = (features,1)
+		class_num = 11
+		epochs = 50
 
+		#building the model
+		model.add(layers.Conv1D(filters = 1024,kernel_size = 3, activation='relu', input_shape=input_shape ))
+		model.add(layers.MaxPooling1D(pool_size = 2))
+		# model.add(layers.Conv1D(filters = 2048,kernel_size = 3, activation='relu'))
+		# model.add(layers.MaxPooling1D(pool_size = 2))
+		model.add(layers.Flatten())
+		model.add(layers.Dense(2048,activation='relu'))
+		model.add(layers.Dropout(0.2))
+		
+		model.add(layers.Dense(class_num,activation='softmax'))
 
-	model.add(layers.Conv2D(28,(3,3), activation='relu', input_shape=(28,28,1) ))
-	model.add(layers.MaxPooling2D(2,2))
-	model.add(layers.Conv2D(64,(3,3), activation='relu'))
-	model.add(layers.MaxPooling2D(2,2))
-	# model.add(layers.Conv2D(64,(3,3),activation='relu'))
-	model.add(layers.Flatten())
-	model.add(layers.Dense(128,activation='relu'))
-	model.add(layers.Dropout(0.2))
-	model.add(layers.Dense(10,activation='softmax'))
+		
 
-	# model.add(layers.Dense(20,input_dim=784,activation='relu'))
-	# print(model.output_shape)
-	# model.add(layers.Dense(40,activation='relu'))
-	# print(model.output_shape)
-	# model.add(layers.Dense(60,activation='relu'))
-	# print(model.output_shape)
-	# model.add(layers.Dense(80,activation='relu'))
-	# model.add(layers.Dense(100,activation='relu'))
-	# model.add(layers.Dense(120,activation='relu'))
-	# model.add(layers.Dense(120,activation='relu'))
-	# model.add(layers.Dense(240,activation='relu'))
-	# model.add(layers.Dense(10,activation='softmax'))
+	
 	print(model.output_shape)
 
 
-	model.compile(optimizer='adam',loss = 'categorical_crossentropy',
-		metrics=['accuracy'])
+	# model.compile(optimizer='adam',loss = 'categorical_crossentropy',
+	# 	metrics=['accuracy'])
 	model.compile(optimizer='adam',loss = 'sparse_categorical_crossentropy',
 		metrics=['accuracy'])
-	history = model.fit(X,Xlabels,epochs=20,validation_data=(Y,Ylabels))
+	history = model.fit(X,Xlabels,epochs=epochs,validation_data=(Y,Ylabels))
 
 	test_loss,test_acc = model.evaluate(Y,Ylabels,verbose=2)
 
 
-def xgboost_classify(X,Xlabels,Y,Ylabels):
+def xgboost_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	########## Applying PCA (Optional)
-	pca = PCA(n_components = 10)
-	pca.fit(X) 
-	X = pca.transform(X)
-	Y = pca.transform(Y)
+	if(pca_flag):
+		pca = PCA(n_components = 3)
+		pca.fit(X) 
+		X = pca.transform(X)
+		Y = pca.transform(Y)
 	########## Applying PCA (Optional)
 
-	#gbtree, gblinear, dart 0.978
-	#model = XGBClassifier()
-	#acc 0.9572
-	model = XGBRFClassifier(n_estimators=50,max_depth=50)
+	#MNIST : gbtree, gblinear, dart 0.978
+	#IYER: 0.96153, 0.9935 with PCA (3)
+	model = XGBClassifier()
+	#MNIST : acc 0.9572 (n_estimators=50,max_depth=50, with no PCA)
+	#IYER: 0.9487 (n_estimators=500,max_depth=50)
+	#model = XGBRFClassifier(n_estimators=50,max_depth=50)
 	model.fit(np.asfarray(X),np.asfarray(Xlabels))
 
 	output = model.predict(np.asfarray(Y))
@@ -166,7 +186,14 @@ if len(sys.argv)==1:
 data_path = sys.argv[2]
 classifier = sys.argv[1]
 
+pca_flag = False
+if(len(sys.argv)>3 and sys.argv[3] == 'pca'):
+	pca_flag = True
+
 #get data from data path
 train, train_labels, test,test_labels = extract_data(data_path)
 #call classifiers' function
-classification(classifier,train,train_labels,test,test_labels,data_path)
+classification(classifier,train,train_labels,test,test_labels,data_path,pca_flag)
+
+
+#Do the ensemble learning
