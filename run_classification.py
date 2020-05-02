@@ -9,6 +9,7 @@ import xgboost as xgb
 from xgboost import XGBClassifier, XGBRFClassifier
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix, roc_auc_score
 
 
 
@@ -37,11 +38,11 @@ def extract_data(data_path):
 
 def classification(classifier,train,train_labels,test,test_labels,dataset,pca_flag):
 	if(classifier == 'svm'):
-		svm_classify(train,train_labels,test,test_labels,pca_flag)
+		return svm_classify(train,train_labels,test,test_labels,pca_flag)
 	elif(classifier == 'dnn'):
-		dnn_classify(train,train_labels,test,test_labels,dataset,pca_flag)
+		return dnn_classify(train,train_labels,test,test_labels,dataset,pca_flag)
 	elif(classifier == 'xgboost'):
-		xgboost_classify(train,train_labels,test,test_labels,pca_flag)
+		return xgboost_classify(train,train_labels,test,test_labels,pca_flag)
 
 
 
@@ -66,14 +67,8 @@ def svm_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	
 	model.fit(X,Xlabels)
 	output = model.predict(Y)
-	#acc = len(output==Ylabels)/len(Ylabels)
-	acc = 0
-	for i,j in zip(output,Ylabels):
-		if(i==j):
-			acc += 1
-
-	print(acc/len(Ylabels))
-
+	
+	return output
 
 def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
 	model = models.Sequential()
@@ -145,7 +140,8 @@ def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
 		metrics=['accuracy'])
 	history = model.fit(X,Xlabels,epochs=epochs,validation_data=(Y,Ylabels))
 
-	test_loss,test_acc = model.evaluate(Y,Ylabels,verbose=2)
+	return(model.predict(Y))
+	#test_loss,test_acc = model.evaluate(Y,Ylabels,verbose=2)
 
 
 def xgboost_classify(X,Xlabels,Y,Ylabels,pca_flag):
@@ -166,13 +162,15 @@ def xgboost_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	model.fit(np.asfarray(X),np.asfarray(Xlabels))
 
 	output = model.predict(np.asfarray(Y))
-	#acc = len(output==Ylabels)/len(Ylabels)
-	acc = 0
-	for i,j in zip(output,Ylabels):
-		if(i==j):
-			acc += 1
 
-	print(acc/len(Ylabels))
+	return output
+
+def metrics_calc(target,output,out_mat):
+	
+	acc = (np.asfarray(target) == output).sum()/len(target)
+	auc = roc_auc_score(target,out_mat,multi_class='ovr',average = 'macro')
+
+	return(acc,auc,0)
 
 
 
@@ -187,13 +185,28 @@ data_path = sys.argv[2]
 classifier = sys.argv[1]
 
 pca_flag = False
+run_all = False
 if(len(sys.argv)>3 and sys.argv[3] == 'pca'):
 	pca_flag = True
+
+if(len(sys.argv)>4 and sys.argv[4] == 'all'):
+	run_all = True
 
 #get data from data path
 train, train_labels, test,test_labels = extract_data(data_path)
 #call classifiers' function
-classification(classifier,train,train_labels,test,test_labels,data_path,pca_flag)
+output = classification(classifier,train,train_labels,test,test_labels,data_path,pca_flag)
+#calculate confusion matrix
+print(confusion_matrix(test_labels,output))
+#compute other metrics
+output_matrix = np.zeros(len(test_labels),(max(test_labels)-min(test_labels))-1)
+test_labels2 = [int(i) for i in test_labels.tolist()]
+print(len(test_labels2),len(test_labels2))
+output_matrix[np.arange(len(test_labels2)),test_labels2] = 1.0
+print(output_matrix)
+accuracy,auc,recalls = metrics_calc(test_labels,output,output_matrix)
+print(accuracy,auc,recalls)
+
 
 
 #Do the ensemble learning
