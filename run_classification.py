@@ -9,7 +9,10 @@ import xgboost as xgb
 from xgboost import XGBClassifier, XGBRFClassifier
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, roc_auc_score
+from sklearn.metrics import confusion_matrix, roc_auc_score, recall_score, \
+							precision_score, f1_score
+import matplotlib.pyplot as plt
+from scipy import stats
 
 
 
@@ -51,6 +54,11 @@ def svm_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	#I used different kernels (poly with deg 9 0.8581, 4degree 0.9698, rbf = 0.9792, rbf with pca_70 is 0.9846, sigmoid with 0.7759 acc)
 	model = svm.SVC(decision_function_shape='ovr',kernel='rbf') #define a support vector classifier
 	
+	#if mnist-3d data comes, make them vector
+	if(len(X.shape)==3):
+		X = X.reshape(X.shape[0],X.shape[1]*X.shape[2])
+		Y = Y.reshape(Y.shape[0],Y.shape[1]*Y.shape[2])
+
 	########## Applying PCA (Optional)
 	if(pca_flag and len(X[0])>13):
 		pca = PCA(n_components = 70)
@@ -139,15 +147,26 @@ def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
 	model.compile(optimizer='adam',loss = 'sparse_categorical_crossentropy',
 		metrics=['accuracy'])
 	history = model.fit(X,Xlabels,epochs=epochs,validation_data=(Y,Ylabels))
-
-	return(model.predict(Y))
+	output = model.predict(Y)
+	output = np.argmax(output,axis=1)
+	return(output)
 	#test_loss,test_acc = model.evaluate(Y,Ylabels,verbose=2)
 
 
 def xgboost_classify(X,Xlabels,Y,Ylabels,pca_flag):
+
+	if(len(X.shape)==3):
+		X = X.reshape(X.shape[0],X.shape[1]*X.shape[2])
+		Y = Y.reshape(Y.shape[0],Y.shape[1]*Y.shape[2])
+
 	########## Applying PCA (Optional)
-	if(pca_flag):
+	if(pca_flag and len(X[0])==13):
 		pca = PCA(n_components = 3)
+		pca.fit(X) 
+		X = pca.transform(X)
+		Y = pca.transform(Y)
+	elif(pca_flag and len(X[0])>13):
+		pca = PCA(n_components = 50)
 		pca.fit(X) 
 		X = pca.transform(X)
 		Y = pca.transform(Y)
@@ -166,11 +185,16 @@ def xgboost_classify(X,Xlabels,Y,Ylabels,pca_flag):
 	return output
 
 def metrics_calc(target,output,out_mat):
-	
+	#computing accuracy = number of correct classified / all samples
 	acc = (np.asfarray(target) == output).sum()/len(target)
+	#computing area under curve with one-vs-rest and macro averaging (average over all samples)
 	auc = roc_auc_score(target,out_mat,multi_class='ovr',average = 'macro')
-
-	return(acc,auc,0)
+	#computing recall with macro averaging
+	rpf = []
+	rpf.append(recall_score(target,output,average='macro'))
+	rpf.append(precision_score(target,output,average='macro'))
+	rpf.append(f1_score(target,output,average='macro'))
+	return(acc,auc,rpf)
 
 
 
@@ -189,24 +213,110 @@ run_all = False
 if(len(sys.argv)>3 and sys.argv[3] == 'pca'):
 	pca_flag = True
 
-if(len(sys.argv)>4 and sys.argv[4] == 'all'):
-	run_all = True
+# if(len(sys.argv)>4 and sys.argv[4] == 'all'):
+# 	run_all = True
 
-#get data from data path
-train, train_labels, test,test_labels = extract_data(data_path)
-#call classifiers' function
-output = classification(classifier,train,train_labels,test,test_labels,data_path,pca_flag)
-#calculate confusion matrix
-print(confusion_matrix(test_labels,output))
-#compute other metrics
-output_matrix = np.zeros(len(test_labels),(max(test_labels)-min(test_labels))-1)
-test_labels2 = [int(i) for i in test_labels.tolist()]
-print(len(test_labels2),len(test_labels2))
-output_matrix[np.arange(len(test_labels2)),test_labels2] = 1.0
-print(output_matrix)
-accuracy,auc,recalls = metrics_calc(test_labels,output,output_matrix)
-print(accuracy,auc,recalls)
+if(classifier != 'all'):
+	#description
+	print('result of running ',classifier,' on ',data_path)
+	#get data from data path
+	train, train_labels, test,test_labels = extract_data(data_path)
+	#call classifiers' function
+	output = classification(classifier,train,train_labels,test,test_labels,data_path,pca_flag)
+	#calculate confusion matrix
+	print(confusion_matrix(test_labels,output))
+	#compute other metrics
+	output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+	output_list = [int(i) for i in output.tolist()]
+	output_matrix[np.arange(len(output_list)),output_list] = 1.0
+
+	accuracy,auc,recalls = metrics_calc(test_labels,output,output_matrix)
+	print('accruracy: ',accuracy,' - area under curveL ',auc)
+	print('recall: ',recalls[0],' - precision: ',recalls[1],' - F1: ',recalls[2])
+else:
+	print('running all models on: ',data_path)
+	runs_ = 5 #number of runs
+	ensemble = 1
+	#get data from data path
+	train, train_labels, test,test_labels = extract_data(data_path)
+	acc_all = np.zeros((3+ensemble,runs_))
+	auc_all = np.zeros((3+ensemble,runs_))
+	recall_all = np.zeros((3+ensemble,runs_))
+
+	#run each model 5 times
+	for run in range(0,runs_):
+		#run svm and compute metrics
+		svm_out = classification('svm',train,train_labels,test,test_labels,data_path,pca_flag)
+		output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+		output_list = [int(i) for i in svm_out.tolist()]
+		output_matrix[np.arange(len(output_list)),output_list] = 1.0
+		accuracy,auc,recalls = metrics_calc(test_labels,svm_out,output_matrix)
+		acc_all[0,run] = accuracy; auc_all[0,run] = auc; recall_all[0,run] = recalls[0]
+		
+		#run deep learing and compute metrics
+		dnn_out = classification('dnn',train,train_labels,test,test_labels,data_path,pca_flag)
+		output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+		output_list = [int(i) for i in dnn_out.tolist()]
+		output_matrix[np.arange(len(output_list)),output_list] = 1.0
+		accuracy,auc,recalls = metrics_calc(test_labels,dnn_out,output_matrix)
+		acc_all[1,run] = accuracy; auc_all[1,run] = auc; recall_all[1,run] = recalls[0]
+
+		#run XGboost and compute metrics
+		xg_out = classification('xgboost',train,train_labels,test,test_labels,data_path,pca_flag)
+		output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+		output_list = [int(i) for i in xg_out.tolist()]
+		output_matrix[np.arange(len(output_list)),output_list] = 1.0
+		accuracy,auc,recalls = metrics_calc(test_labels,xg_out,output_matrix)
+		acc_all[2,run] = accuracy; auc_all[2,run] = auc; recall_all[2,run] = recalls[0]
+
+		#Do the ensemble learning with majority vote
+		if(ensemble>0):
+			ensemble_maj_out = stats.mode([svm_out,dnn_out,xg_out]).mode[0]
+			output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+			output_list = [int(i) for i in ensemble_maj_out.tolist()]
+			output_matrix[np.arange(len(output_list)),output_list] = 1.0
+			accuracy,auc,recalls = metrics_calc(test_labels,ensemble_maj_out,output_matrix)
+			acc_all[3,run] = accuracy; auc_all[3,run] = auc; recall_all[3,run] = recalls[0]
+		#Do the ensemble learning with weighting vote
+		if(ensemble>1):
+			ensemble_W_out = np.round( (svm_out*(acc_all[0,run]/np.sum(acc_all[0:3,run]))+ \
+								dnn_out*(acc_all[1,run]/sum(acc_all[0:3,run]))+ \
+								xg_out*(acc_all[2,run]/sum(acc_all[0:3,run])) ))
+			#exit()
+			output_matrix = np.zeros((test_labels.size,int(np.max(test_labels)-np.min(test_labels))+1))
+			output_list = [int(i) for i in ensemble_W_out.tolist()]
+			output_matrix[np.arange(len(output_list)),output_list] = 1.0
+			accuracy,auc,recalls = metrics_calc(test_labels,ensemble_W_out,output_matrix)
+			acc_all[4,run] = accuracy; auc_all[4,run] = auc; recall_all[4,run] = recalls[0]
+
+	#show plots of different metrics
+	bar_labels = ['SVM','DNN','XGBOOST','Ensemble majority','Ensemble Weighted']
+	#accuracy
+
+	fig, ax = plt.subplots()
+	ax.bar(np.arange(3+ensemble),np.mean(acc_all,axis=1),yerr = np.std(acc_all,axis=1),align='center')
+	ax.set_ylabel('Accuracy %')
+	ax.set_xticks(np.arange(3+ensemble))
+	ax.set_xticklabels(bar_labels[0:3+ensemble])
+	ax.set_title(str('Accuracy Comparison of different models over '+data_path))
+	plt.show()
+
+	#AUC
+	fig, ax = plt.subplots()
+	ax.bar(np.arange(3+ensemble),np.mean(auc_all,axis=1),yerr = np.std(auc_all,axis=1),align='center')
+	ax.set_ylabel('AUC %')
+	ax.set_xticks(np.arange(3+ensemble))
+	ax.set_xticklabels(bar_labels[0:3+ensemble])
+	ax.set_title(str('AUC Comparison of different models over '+data_path))
+	plt.show()
+
+	#recall
+	fig, ax = plt.subplots()
+	ax.bar(np.arange(3+ensemble),np.mean(recall_all,axis=1),yerr = np.std(recall_all,axis=1),align='center')
+	ax.set_ylabel('Recall %')
+	ax.set_xticks(np.arange(3+ensemble))
+	ax.set_xticklabels(bar_labels[0:3+ensemble])
+	ax.set_title(str('Recall Comparison of different models over '+data_path))
+	plt.show()
 
 
-
-#Do the ensemble learning
