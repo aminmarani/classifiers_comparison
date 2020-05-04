@@ -31,6 +31,26 @@ def extract_data(data_path):
 		y[y==-1] = 0 #re-assign noise to class 0 to have 0-10 classes
 		x = np.delete(data,1,1)
 		train,test,train_labels,test_labels = train_test_split(x,y,test_size = 0.3, random_state = 12345)
+		#############
+		#details of Iyer dataset
+		# data_list = []
+		# for i in range(0,11):
+		# 	s = np.sum(y == i)
+		# 	if(s>0):
+		# 		data_list.append(s)
+		# print(data_list)
+		# print(np.mean(data_list),np.std(data_list),np.max(data_list),np.min(data_list))
+
+		# pca = PCA(n_components=2)
+		# pca.fit(x)
+		# x = pca.transform(x)
+		# fig,ax = plt.subplots()
+		# ax.scatter(x[:,1],x[:,0],c=y)
+		# ax.set_title('Scatter Plot of Iyer dataset using 2-compoenents PCA')
+		# plt.show()
+
+		# exit()
+		#############
 	else:
 		print('please correct your data-set name and re-run the program')
 		exit()
@@ -98,9 +118,11 @@ def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
 		epochs = 20
 		#building the model
 		#drop out 0.2 0.9920
-		model.add(layers.Conv2D(28,(3,3), activation='relu', input_shape=input_shape ))
+
+		#28-64-128
+		model.add(layers.Conv2D(32,(3,3), activation='relu', input_shape=input_shape ))
 		model.add(layers.MaxPooling2D(2,2))
-		model.add(layers.Conv2D(64,(3,3), activation='relu'))
+		model.add(layers.Conv2D(128,(3,3), activation='relu'))
 		model.add(layers.MaxPooling2D(2,2))
 		# model.add(layers.Conv2D(64,(3,3),activation='relu'))
 		model.add(layers.Flatten())
@@ -126,7 +148,8 @@ def dnn_classify(X,Xlabels,Y,Ylabels,dataset,pca_flag):
 		epochs = 50
 
 		#building the model
-		model.add(layers.Conv1D(filters = 1024,kernel_size = 3, activation='relu', input_shape=input_shape ))
+		#10248-2048
+		model.add(layers.Conv1D(filters = 1024,kernel_size = 2, activation='relu', input_shape=input_shape ))
 		model.add(layers.MaxPooling1D(pool_size = 2))
 		# model.add(layers.Conv1D(filters = 2048,kernel_size = 3, activation='relu'))
 		# model.add(layers.MaxPooling1D(pool_size = 2))
